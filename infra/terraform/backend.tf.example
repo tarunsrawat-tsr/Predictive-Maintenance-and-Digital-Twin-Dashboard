@@ -1,0 +1,10 @@
+# Copy to backend.tf for shared/remote state (recommended beyond a single laptop).
+terraform {
+  backend "s3" {
+    bucket         = "my-terraform-state-bucket"
+    key            = "pdm/dev/terraform.tfstate"
+    region         = "ap-northeast-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}

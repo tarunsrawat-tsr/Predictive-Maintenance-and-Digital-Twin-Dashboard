@@ -1,0 +1,109 @@
+{
+  "dataset": "FD001",
+  "window": 20,
+  "rul_cap": 125.0,
+  "n_train_rows": 20631,
+  "n_train_units": 100,
+  "n_calibration_units": 25,
+  "best_iteration": 165,
+  "holdout_rmse": 14.91039023468988,
+  "holdout_coverage_p10_p90": 0.7992013690815745,
+  "test_rmse_capped": 14.286547909634061,
+  "test_rmse_uncapped": 15.538298848279569,
+  "test_nasa_score_capped": 327.1746818821915,
+  "test_coverage_p10_p90": 0.75,
+  "test_mean_interval_width": 30.690449241811642,
+  "anomaly_score_early_life_mean": 0.771312383457924,
+  "anomaly_score_end_of_trace_mean": 0.9662816064650309,
+  "conformal_offsets": {
+    "edges": [
+      0.0,
+      20.833333333333332,
+      41.666666666666664,
+      62.5,
+      83.33333333333333,
+      104.16666666666666,
+      1000000000.0
+    ],
+    "lo": [
+      -5.01932521405605,
+      -9.082817467836247,
+      -14.748729392439527,
+      -18.912551311229116,
+      -25.466621856265906,
+      -12.651271134309013
+    ],
+    "hi": [
+      4.772780935304903,
+      10.834973549960162,
+      19.031318009296957,
+      35.37408889516554,
+      35.28707753516652,
+      11.009153065890828
+    ],
+    "alpha": 0.1
+  },
+  "top_features_gain": [
+    {
+      "feature": "s3_mean",
+      "gain": 133499811.7
+    },
+    {
+      "feature": "s2_mean",
+      "gain": 90572242.9
+    },
+    {
+      "feature": "cycle",
+      "gain": 54586756.2
+    },
+    {
+      "feature": "s15_mean",
+      "gain": 49227859.4
+    },
+    {
+      "feature": "s4_mean",
+      "gain": 37063405.2
+    },
+    {
+      "feature": "s17_mean",
+      "gain": 10395152.8
+    },
+    {
+      "feature": "s11_slope",
+      "gain": 9046034.4
+    },
+    {
+      "feature": "s9_mean",
+      "gain": 8510415.0
+    },
+    {
+      "feature": "s12_slope",
+      "gain": 6086503.0
+    },
+    {
+      "feature": "s9_last",
+      "gain": 5536240.7
+    },
+    {
+      "feature": "s21_mean",
+      "gain": 4872434.8
+    },
+    {
+      "feature": "s8_slope",
+      "gain": 4831928.8
+    },
+    {
+      "feature": "s14_slope",
+      "gain": 4044192.9
+    },
+    {
+      "feature": "s14_mean",
+      "gain": 4018736.6
+    },
+    {
+      "feature": "s4_slope",
+      "gain": 3639506.0
+    }
+  ],
+  "train_seconds": 2.3
+}

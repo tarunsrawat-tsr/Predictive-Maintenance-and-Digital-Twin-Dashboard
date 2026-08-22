@@ -1,0 +1,44 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# data & generated artifacts (recreate with `make data` / `make train`)
+data/
+artifacts/*
+!artifacts/.gitkeep
+!artifacts/model/
+artifacts/model/*
+!artifacts/model/metrics.json
+!artifacts/model/.gitkeep
+
+# local demo db
+*.sqlite
+*.sqlite-*
+
+# terraform
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/terraform.tfvars
+infra/terraform/backend.tf
+infra/terraform/*.plan
+
+# secrets
+artifacts/certs/
+*.pem
+*.key
+*.crt
+.env
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+.demo.pid
