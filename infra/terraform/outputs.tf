@@ -14,7 +14,7 @@ output "iot_topic_filter" {
 
 output "iot_cert_ssm_parameters" {
   description = "SSM SecureString parameters holding the gateway certificate and private key."
-  value       = {
+  value = {
     certificate_pem = aws_ssm_parameter.iot_cert_pem.name
     private_key     = aws_ssm_parameter.iot_private_key.name
   }

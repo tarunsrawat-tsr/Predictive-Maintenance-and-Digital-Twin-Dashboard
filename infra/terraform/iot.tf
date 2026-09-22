@@ -25,7 +25,7 @@ resource "aws_iot_policy" "gateway" {
   name = "${local.name}-gateway-policy"
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
@@ -74,7 +74,7 @@ resource "aws_iam_role" "iot_rule" {
   name = "${local.name}-iot-rule"
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = { Service = "iot.amazonaws.com" }
@@ -88,7 +88,7 @@ resource "aws_iam_role_policy" "iot_rule" {
   role = aws_iam_role.iot_rule.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"

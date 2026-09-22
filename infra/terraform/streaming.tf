@@ -79,7 +79,7 @@ resource "aws_iam_role" "firehose" {
   name = "${local.name}-firehose"
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = { Service = "firehose.amazonaws.com" }
@@ -94,7 +94,7 @@ resource "aws_iam_role_policy" "firehose" {
   role = aws_iam_role.firehose.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
@@ -178,7 +178,7 @@ resource "aws_glue_catalog_table" "telemetry" {
 
     ser_de_info {
       serialization_library = "org.openx.data.jsonserde.JsonSerDe"
-      parameters            = {
+      parameters = {
         "ignore.malformed.json" = "true"
       }
     }

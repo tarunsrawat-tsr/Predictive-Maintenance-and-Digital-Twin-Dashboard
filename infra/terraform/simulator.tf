@@ -29,9 +29,9 @@ resource "aws_ecs_task_definition" "simulator" {
 
   container_definitions = jsonencode([
     {
-      name        = "simulator"
-      image       = "${aws_ecr_repository.svc["simulator"].repository_url}:${var.image_tag}"
-      essential   = true
+      name      = "simulator"
+      image     = "${aws_ecr_repository.svc["simulator"].repository_url}:${var.image_tag}"
+      essential = true
       environment = [
         { name = "MQTT_HOST", value = data.aws_iot_endpoint.data.endpoint_address },
         { name = "MQTT_PORT", value = "8883" },
@@ -48,7 +48,7 @@ resource "aws_ecs_task_definition" "simulator" {
       ]
       logConfiguration = {
         logDriver = "awslogs"
-        options   = {
+        options = {
           awslogs-group         = aws_cloudwatch_log_group.simulator.name
           awslogs-region        = local.region
           awslogs-stream-prefix = "simulator"

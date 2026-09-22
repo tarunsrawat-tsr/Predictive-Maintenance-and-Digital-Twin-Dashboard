@@ -13,7 +13,7 @@ resource "aws_sns_topic_policy" "alerts" {
   arn = aws_sns_topic.alerts.arn
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Sid       = "AllowCloudWatchAlarms"

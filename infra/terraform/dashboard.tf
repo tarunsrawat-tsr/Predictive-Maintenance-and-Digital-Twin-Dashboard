@@ -51,11 +51,11 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
   role = aws_iam_role.ecs_execution.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameters", "ssm:GetParameter"]
+        Effect = "Allow"
+        Action = ["ssm:GetParameters", "ssm:GetParameter"]
         Resource = concat(
           [aws_ssm_parameter.iot_cert_pem.arn, aws_ssm_parameter.iot_private_key.arn],
           var.dashboard_password != "" ? [aws_ssm_parameter.dashboard_password[0].arn] : []
@@ -80,11 +80,11 @@ resource "aws_iam_role_policy" "dashboard_task" {
   role = aws_iam_role.dashboard_task.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"]
+        Effect = "Allow"
+        Action = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"]
         Resource = [
           aws_dynamodb_table.telemetry.arn,
           aws_dynamodb_table.machine_state.arn,
@@ -225,15 +225,15 @@ resource "aws_ecs_task_definition" "dashboard" {
 
   container_definitions = jsonencode([
     {
-      name         = "dashboard"
-      image        = "${aws_ecr_repository.svc["dashboard"].repository_url}:${var.image_tag}"
-      essential    = true
+      name      = "dashboard"
+      image     = "${aws_ecr_repository.svc["dashboard"].repository_url}:${var.image_tag}"
+      essential = true
       portMappings = [{
         containerPort = 8501
         protocol      = "tcp"
       }]
       environment = [for k, v in local.dashboard_env : { name = k, value = v }]
-      secrets     = var.dashboard_password != "" ? [{
+      secrets = var.dashboard_password != "" ? [{
         name      = "DASHBOARD_PASSWORD"
         valueFrom = aws_ssm_parameter.dashboard_password[0].arn
       }] : []
@@ -246,7 +246,7 @@ resource "aws_ecs_task_definition" "dashboard" {
       }
       logConfiguration = {
         logDriver = "awslogs"
-        options   = {
+        options = {
           awslogs-group         = aws_cloudwatch_log_group.dashboard.name
           awslogs-region        = local.region
           awslogs-stream-prefix = "dashboard"

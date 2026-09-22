@@ -141,7 +141,7 @@ resource "aws_ecr_lifecycle_policy" "svc" {
     rules = [{
       rulePriority = 1
       description  = "keep last 10 images"
-      selection    = {
+      selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
         countNumber = 10
