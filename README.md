@@ -1,105 +1,417 @@
 # Predictive Maintenance & Digital Twin Dashboard
 
-**Industry X / IoT reference implementation on AWS.** Sensor streams from a simulated factory
-fleet (NASA C‑MAPSS turbofan degradation data) flow over **MQTT into AWS IoT Core → Kinesis →
-a Lambda scorer** that predicts **remaining useful life (RUL)** with calibrated uncertainty and
-flags **anomalies**, lands results in **DynamoDB + an S3/Athena data lake**, and powers a live
-**Streamlit digital‑twin console** with machine health, alerts, a capacity‑aware maintenance
-schedule and an ROI calculator. Everything is provisioned with **Terraform**.
+An AWS-based predictive maintenance system for monitoring industrial equipment, estimating remaining useful life (RUL), detecting anomalies, and planning maintenance.
 
-```
-C-MAPSS replay ─MQTT/TLS─▶ IoT Core ─rule─▶ Kinesis ─▶ Lambda scorer ─┬─▶ DynamoDB ─▶ Streamlit console (ECS Fargate + ALB)
-                                                                       ├─▶ Firehose ─▶ S3 data lake ─▶ Athena
-                                                                       └─▶ SNS (critical alerts, platform alarms, budget)
-```
+The project uses NASA's C-MAPSS turbofan degradation dataset to simulate a fleet of machines. Sensor data is published over MQTT and processed through AWS IoT Core, Kinesis, and Lambda. Predictions and machine state are stored in DynamoDB, while the complete telemetry history is archived in S3 and queried through Athena.
 
-| | |
-| --- | --- |
-| **Business problem** | Unplanned equipment downtime. Leadership wants to know *when* machines will fail and *whether the investment pays off*. |
-| **Answer** | Per-machine RUL (median + 80 % band), anomaly score, health index and a just-in-time maintenance plan; an interactive ROI model using the plant's own cost assumptions. |
-| **Model quality** | RMSE **14.3 cycles**, NASA PHM08 score **327** on the official FD001 test protocol; 80 % conformal intervals; anomaly detector with ≈ 1 % false-positive rate in healthy life and 89 % hit rate in the final 25 cycles. |
-| **Cloud** | AWS, Tokyo region by default. ≈ $75/month at demo scale, fully serverless hot path, Budgets alarm included. |
-| **Tests** | 30 tests: feature parity online/offline, model round-trip, health rules, end-to-end pipeline on SQLite **and** moto-mocked DynamoDB/Firehose/SNS, Lambda handler, headless render of every dashboard page. |
+A Streamlit dashboard provides a digital-twin view of the fleet, machine-level diagnostics, alerts, maintenance scheduling, and an interactive ROI model.
 
----
+## Architecture
 
-## Dashboard tour
-
-| Page | What you see |
-| --- | --- |
-| **Fleet overview** | KPIs (fleet health, critical/warning counts, open alerts, next maintenance, downtime cost avoided), a plant-floor **digital twin** (one lane per production line, hexagon per machine, colour = status, size = health), RUL ranking with uncertainty bars, asset cards, latest alerts. Auto-refreshes every 5 s. |
-| **Machine twin** | Health gauge, RUL p10/p50/p90, anomaly score, maintenance deadline, *why this status*. A turbofan cross-section with live sensor read-outs coloured by deviation from the healthy baseline (z-score). RUL trajectory with conformal band, anomaly timeline, sensor trends, the exact feature window the model saw, alert history. |
-| **Alerts** | Inbox with filters, multi-row select → **acknowledge** (writes back to DynamoDB), jump to the machine twin. Alerts fire on status *transitions* only (hysteresis + EWMA + burn-in keep them quiet). |
-| **Maintenance & ROI** | Deadlines from conservative RUL, greedy **crew-capacity scheduler** (Gantt + table + CSV export), and the **business case**: net annual benefit, ROI, payback, downtime hours avoided, all live-editable. |
-| **Model card** | Metrics, feature importance, conformal offsets, thresholds, limitations — the page a reviewer asks for. |
-
-Run it locally in one minute (no AWS account needed — the same scorer code is fed in‑process):
-
-```bash
-make setup && make train       # installs deps, downloads C-MAPSS, trains (≈ 10 s)
-make demo-sim                  # terminal 1: 12 machines, 1 cycle every 2 s, 150 cycles of back-fill
-make demo-dash                 # terminal 2: http://localhost:8501
+```text
+C-MAPSS replay
+      │
+      │ MQTT / TLS
+      ▼
+ AWS IoT Core
+      │
+      │ IoT Rule
+      ▼
+   Kinesis
+      │
+      ▼
+ Lambda scorer
+      │
+      ├──────────────► DynamoDB ──────────► Streamlit dashboard
+      │
+      ├──────────────► Firehose ──────────► S3 ──► Athena
+      │
+      └──────────────► SNS
+                         │
+                         └── Critical alerts / platform alarms / budget alerts
 ```
 
----
+The same scoring pipeline is used locally and in AWS. This makes it possible to run the complete application without an AWS account during development.
 
-## What's in the box
+## What the system does
 
-```
-src/pdm/                 shared library
-  schema.py              MQTT contract (pydantic) + sensor metadata
-  cmapss.py              dataset download/parse, RUL labels
-  features.py            rolling-window features — one NumPy function used by training AND the Lambda
-  model.py               LightGBM RUL + split-conformal intervals + Mahalanobis anomaly; S3 load/save
-  health.py              health index, status rules w/ hysteresis, alert transitions, scheduler, ROI
-  scoring.py             StreamScorer: micro-batch → features → predictions → state/alerts/sinks
-  simulator.py           fleet replay engine (overhauls failed units, virtual clock)
-  storage/               TelemetryStore protocol; DynamoDB and SQLite adapters
-ml/train.py              training + official-test evaluation → artifacts/model (+ metrics.json)
-services/scorer/         Lambda (container image): Kinesis → StreamScorer
-services/simulator/      MQTT/TLS publisher (X.509, certifi CA bundle), Fargate or laptop
-services/dashboard/      Streamlit console (views/, charts.py, common.py)
-infra/terraform/         IoT Core, Kinesis, Firehose, S3, Glue/Athena, DynamoDB, Lambda+ESM+DLQ,
-                         SNS, VPC, ALB, ECS Fargate ×2, SSM secrets, CloudWatch alarms/dashboard, Budgets
-scripts/                 demo.py, build_and_push.sh, fetch_iot_certs.sh, smoke_test.sh
-tests/                   see above
-docs/                    architecture.md · business-case.md · model-card.md · runbook.md
-```
+For each machine, the system maintains:
 
-## Deploy to AWS
+- Remaining useful life (RUL)
+- RUL uncertainty interval
+- Anomaly score
+- Health index
+- Current machine status
+- Maintenance deadline
+- Alert history
 
-```bash
-cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars   # alert_email, cidrs, password
-make train            # model bundle baked into the images
-make infra-ecr        # create ECR repos
-make push             # build + push scorer / dashboard / simulator images (linux/amd64)
-make infra-apply      # everything else
-./scripts/smoke_test.sh
-terraform -chdir=infra/terraform output dashboard_url
-```
+The dashboard combines these outputs with the machine's recent sensor history to provide both fleet-level and machine-level views.
 
-Full runbook (day-2 ops, Athena queries, troubleshooting, teardown): [`docs/runbook.md`](docs/runbook.md).
+### Main dashboard pages
 
-## Design decisions worth knowing
+| Page | Description |
+|---|---|
+| Fleet Overview | Fleet health, warning/critical machines, open alerts, upcoming maintenance, RUL ranking, and a plant-floor digital twin |
+| Machine Twin | Detailed health information, RUL estimates, anomaly history, sensor trends, and the feature window used by the model |
+| Alerts | Active alerts with filtering, acknowledgement, and links to the corresponding machine |
+| Maintenance & ROI | Maintenance deadlines, crew-capacity scheduling, downtime estimates, and configurable ROI calculations |
+| Model Card | Model metrics, features, thresholds, conformal calibration, and known limitations |
 
-* **DynamoDB, not Timestream.** Timestream for LiveAnalytics has been closed to new AWS customers since June 2025 and its successor (Timestream for InfluxDB) is a VPC-bound instance. The console's access patterns (latest *N* per machine, current state of all machines, open alerts) are key lookups; DynamoDB serves them serverlessly with TTL for the hot window while Firehose → S3 → Athena keeps the full history. See [`docs/architecture.md`](docs/architecture.md).
-* **Stateless Lambda, stateful features.** Each batch rebuilds the per-machine window from DynamoDB, so the scorer survives redeploys and reshards without a stream-processing cluster. Kinesis partitioning by `machine_id` preserves ordering.
-* **Conformal intervals instead of quantile boosting.** The piecewise-linear RUL target makes quantile objectives degenerate (most rows sit at the cap); split-conformal offsets are calibrated by construction.
-* **Alert hygiene is designed, not hoped for.** Transition-based alerts, hysteresis, EWMA-smoothed anomaly score and a 15-cycle burn-in cut alert volume ~5× on the demo fleet without losing a single late-life escalation.
-* **Business rules are configuration.** RUL/anomaly thresholds, safety margin, cycle duration, downtime cost, crews — all env vars, set from Terraform, shared by scorer and dashboard.
+The dashboard automatically refreshes every 5 seconds during the live simulation.
 
 ## Model
 
-Trained on C‑MAPSS FD001 (100 engines). 57 window features → LightGBM (165 trees) on a RUL target capped at 125 → conformal p10/p90. Anomaly: Mahalanobis distance to an early-life baseline, normalised so 1.0 = healthy p99. Details, numbers and limitations: [`docs/model-card.md`](docs/model-card.md). Retrain with `python ml/train.py --dataset FD001` (metrics are printed and saved to `artifacts/model/metrics.json`).
+The predictive model is trained on the NASA C-MAPSS FD001 dataset.
 
-## Business case
+The current implementation uses:
 
-The dashboard's ROI page and [`docs/business-case.md`](docs/business-case.md) walk through the model: each failure caught early converts a long unplanned outage into a short planned one. With 20 machines, 1.2 failures/machine-year, 70 % capture, 24 h → 6 h outages at $15k/h, the net benefit is ≈ $4.5 M/year against a $60 k platform — and still ≈ $390 k/year at a tenth of that downtime cost.
+- 100 training engines
+- 57 rolling-window features
+- LightGBM regression
+- 165 trees
+- RUL target capped at 125 cycles
+- Split-conformal calibration for prediction intervals
+- Mahalanobis-distance anomaly detection
+
+The reported FD001 test results are:
+
+| Metric | Result |
+|---|---:|
+| RUL RMSE | 14.3 cycles |
+| NASA PHM08 score | 327 |
+| Prediction interval | 80% conformal interval |
+
+The anomaly detector is calibrated against an early-life healthy baseline. Its score is normalized so that a value of 1.0 corresponds approximately to the healthy-life 99th percentile.
+
+Model artifacts and evaluation metrics are saved under:
+
+```text
+artifacts/model/
+```
+
+Retraining can be performed with:
+
+```bash
+python ml/train.py --dataset FD001
+```
+
+## Feature pipeline
+
+Feature engineering is implemented once and shared by both training and online inference.
+
+```text
+Raw sensor data
+      │
+      ▼
+Rolling window
+      │
+      ├── Statistical features
+      ├── Trend features
+      ├── Sensor-derived features
+      └── Window-based features
+      │
+      ▼
+57-dimensional feature vector
+      │
+      ├──► RUL model
+      └──► Anomaly detector
+```
+
+Using the same feature implementation offline and online helps avoid training/serving inconsistencies.
+
+## Machine health and alerts
+
+The model prediction is combined with rule-based health logic to determine the machine state.
+
+The system uses:
+
+- RUL thresholds
+- Anomaly thresholds
+- EWMA smoothing
+- Hysteresis
+- A 15-cycle burn-in period
+- Transition-based alert generation
+
+Alerts are generated when a machine changes state rather than on every individual anomalous observation. This reduces repeated notifications while retaining late-life escalations.
+
+The thresholds, safety margin, cycle duration, downtime cost, and crew capacity are configuration parameters and can be supplied through the deployment environment.
+
+## Maintenance scheduling
+
+Maintenance deadlines are calculated from the predicted RUL and a configurable safety margin.
+
+A simple capacity-aware scheduler then assigns maintenance jobs to available crews.
+
+The dashboard displays:
+
+- Machine
+- Predicted maintenance deadline
+- Required maintenance duration
+- Assigned crew
+- Scheduling status
+
+The resulting schedule can also be exported as CSV.
+
+This is intentionally a simple scheduling approach rather than a full industrial maintenance optimization system.
+
+## ROI calculation
+
+The dashboard includes an interactive business-case model.
+
+Users can change assumptions such as:
+
+- Number of machines
+- Expected failures per machine per year
+- Failure detection/capture rate
+- Unplanned outage duration
+- Planned maintenance duration
+- Cost of downtime per hour
+- Annual platform cost
+
+For example, under the following assumptions:
+
+```text
+20 machines
+1.2 failures / machine / year
+70% failure capture
+24-hour unplanned outage
+6-hour planned outage
+$15,000 downtime cost / hour
+```
+
+the model estimates the resulting avoided downtime cost and compares it with the platform cost.
+
+These figures are scenario calculations, not measured savings from a production deployment.
+
+## AWS infrastructure
+
+The AWS deployment is provisioned using Terraform.
+
+The infrastructure includes:
+
+- AWS IoT Core
+- Amazon Kinesis
+- AWS Lambda
+- Amazon DynamoDB
+- Kinesis Data Firehose
+- Amazon S3
+- AWS Glue / Athena
+- Amazon SNS
+- Amazon ECR
+- Amazon ECS Fargate
+- Application Load Balancer
+- Systems Manager Parameter Store
+- CloudWatch alarms and dashboards
+- AWS Budgets
+
+The default deployment targets the Tokyo AWS region.
+
+At the demo scale, the estimated infrastructure cost is approximately $75/month, although actual cost depends on usage, retention, traffic, and AWS pricing.
+
+## Why DynamoDB?
+
+DynamoDB is used for the application's hot operational state.
+
+The dashboard primarily needs access patterns such as:
+
+```text
+Get current state for machine X
+Get latest N observations for machine X
+Get current state for all machines
+Get open alerts
+```
+
+These are key-value and indexed lookup patterns, making DynamoDB a suitable fit for the dashboard's operational data.
+
+Historical telemetry is handled separately:
+
+```text
+Kinesis
+   │
+   ▼
+Firehose
+   │
+   ▼
+S3 data lake
+   │
+   ▼
+Athena
+```
+
+This separates the low-latency application state from long-term analytical storage.
+
+## Repository structure
+
+```text
+src/pdm/
+├── schema.py          MQTT message schema and sensor metadata
+├── cmapss.py          C-MAPSS download, parsing and RUL labels
+├── features.py        Shared feature engineering
+├── model.py           RUL and anomaly models
+├── health.py          Health state and alert logic
+├── scoring.py         Online scoring pipeline
+├── simulator.py       Fleet replay simulator
+└── storage/           DynamoDB and SQLite adapters
+
+ml/
+└── train.py           Training and evaluation
+
+services/
+├── scorer/            Lambda scorer
+├── simulator/         MQTT fleet simulator
+└── dashboard/         Streamlit application
+
+infra/
+└── terraform/         AWS infrastructure
+
+scripts/
+├── demo.py
+├── build_and_push.sh
+├── fetch_iot_certs.sh
+└── smoke_test.sh
+
+tests/                 Automated tests
+
+docs/
+├── architecture.md
+├── business-case.md
+├── model-card.md
+└── runbook.md
+```
+
+## Run locally
+
+An AWS account is not required for the local demo.
+
+### 1. Install dependencies and train the model
+
+```bash
+make setup
+make train
+```
+
+Training downloads the C-MAPSS dataset and creates the model artifacts.
+
+### 2. Start the simulator
+
+In one terminal:
+
+```bash
+make demo-sim
+```
+
+The simulator replays 12 virtual machines, generating one cycle every two seconds. It also performs an initial backfill so that the dashboard has historical data when it starts.
+
+### 3. Start the dashboard
+
+In another terminal:
+
+```bash
+make demo-dash
+```
+
+Then open:
+
+```text
+http://localhost:8501
+```
+
+The local implementation uses the same scoring library as the AWS Lambda deployment, but replaces AWS services with local storage/adapters where appropriate.
+
+## Deploy to AWS
+
+Configure the Terraform variables first:
+
+```bash
+cp infra/terraform/terraform.tfvars.example \
+   infra/terraform/terraform.tfvars
+```
+
+Then build the model and infrastructure:
+
+```bash
+make train
+make infra-ecr
+make push
+make infra-apply
+```
+
+Run the smoke test:
+
+```bash
+./scripts/smoke_test.sh
+```
+
+The dashboard URL can be retrieved with:
+
+```bash
+terraform -chdir=infra/terraform output dashboard_url
+```
+
+Additional deployment and troubleshooting information is available in:
+
+```text
+docs/runbook.md
+```
+
+## Testing
+
+The project currently contains approximately 30 automated tests covering:
+
+- Online/offline feature parity
+- Model serialization and loading
+- Health-state transitions
+- Alert generation
+- Scheduler behavior
+- ROI calculations
+- Lambda event handling
+- End-to-end scoring
+- SQLite storage
+- Mocked DynamoDB, Firehose and SNS interactions
+- Dashboard rendering
+
+The goal is to test the core scoring logic independently from AWS so that most development can be performed locally.
 
 ## Dataset
 
-A. Saxena and K. Goebel (2008). *Turbofan Engine Degradation Simulation Data Set*, NASA Prognostics Data Repository. Downloaded automatically by `make data`; not committed.
+The project uses:
 
-## License
+> A. Saxena and K. Goebel, "Turbofan Engine Degradation Simulation Data Set," NASA Prognostics Data Repository, 2008.
 
-MIT
+The dataset is downloaded during setup and is not included in the repository.
+
+## Limitations
+
+This project is a reference implementation and simulation rather than a production predictive-maintenance deployment.
+
+In particular:
+
+- C-MAPSS is simulated turbofan data and does not represent a specific industrial plant.
+- The model is evaluated on FD001 and should not be assumed to generalize to other equipment without validation.
+- The maintenance scheduler is a greedy capacity-based scheduler rather than a full optimization model.
+- ROI results depend entirely on the assumptions entered by the user.
+- The anomaly detector depends on the selected healthy-life baseline.
+- AWS cost estimates vary with workload and region.
+- Prediction intervals describe model uncertainty under the calibration procedure; they are not guarantees of the actual failure time.
+
+## Project goals
+
+The project is intended to demonstrate an end-to-end predictive-maintenance architecture rather than only an ML model.
+
+It combines:
+
+```text
+Machine learning
+       +
+Streaming data
+       +
+AWS cloud architecture
+       +
+Digital twin visualization
+       +
+Maintenance planning
+       +
+Business impact analysis
+```
+
+The main design objective is to connect the model's prediction to an operational decision: not just "this machine has an RUL of 32 cycles," but also "when should maintenance be scheduled, what is the current machine state, and what is the estimated business impact?"
