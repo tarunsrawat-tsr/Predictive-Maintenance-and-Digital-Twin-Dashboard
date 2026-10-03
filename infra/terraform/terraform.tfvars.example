@@ -1,0 +1,32 @@
+# Copy to terraform.tfvars and adjust.
+project     = "pdm"
+environment = "dev"
+aws_region  = "ap-northeast-1"
+
+# Images are tagged by `make push` (git SHA) -- or keep "latest".
+image_tag = "latest"
+
+# Where to get critical alerts + platform alarms (confirm the SNS subscription email!).
+alert_email = "you@example.com"
+
+# Lock the dashboard down to your network and add an access code.
+dashboard_allowed_cidrs = ["0.0.0.0/0"]
+dashboard_password      = ""
+
+# Simulator: 10 machines, one cycle every 5 s. Set desired_count = 0 to pause it.
+simulator_desired_count    = 1
+simulator_machines         = 10
+simulator_interval_seconds = 5
+
+# Load the model from S3 instead of the copy baked into the images (after `make upload-model`).
+# model_s3_prefix = "models/rul"
+
+# Business rules (all optional)
+health_thresholds = {
+  rul_warning        = 50
+  rul_critical       = 20
+  cycle_hours        = 8
+  downtime_cost_hour = 15000
+}
+
+monthly_budget_usd = 100
