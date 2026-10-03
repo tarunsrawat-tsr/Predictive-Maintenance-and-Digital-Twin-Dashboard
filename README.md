@@ -250,7 +250,9 @@ src/pdm/
 ├── model.py           RUL and anomaly models
 ├── health.py          Health state and alert logic
 ├── scoring.py         Online scoring pipeline
-├── simulator.py       Fleet replay simulator
+├── simulator.py       Fleet replay simulator (resumable replay cursor)
+├── synthetic.py       Deterministic fallback fleet for offline demos
+├── demo.py            Public-demo bootstrap: model, seeded store, live loop
 └── storage/           DynamoDB and SQLite adapters
 
 ml/
@@ -265,7 +267,8 @@ infra/
 └── terraform/         AWS infrastructure
 
 scripts/
-├── demo.py
+├── demo.py            Two-process local demo (simulator + dashboard)
+├── public_demo.py     One-command, read-only public demo
 ├── build_and_push.sh
 ├── fetch_iot_certs.sh
 └── smoke_test.sh
@@ -276,12 +279,15 @@ docs/
 ├── architecture.md
 ├── business-case.md
 ├── model-card.md
+├── public-demo.md
 └── runbook.md
 ```
 
 ## Run locally
 
 An AWS account is not required for the local demo.
+
+> If you only want the dashboard with plausible data in it, use `make public-demo` above — it skips the dataset and training steps entirely.
 
 ### 1. Install dependencies and train the model
 
@@ -356,7 +362,7 @@ docs/runbook.md
 
 ## Testing
 
-The project currently contains approximately 30 automated tests covering:
+The project currently contains 47 automated tests covering:
 
 - Online/offline feature parity
 - Model serialization and loading
@@ -368,7 +374,8 @@ The project currently contains approximately 30 automated tests covering:
 - End-to-end scoring
 - SQLite storage
 - Mocked DynamoDB, Firehose and SNS interactions
-- Dashboard rendering
+- Dashboard rendering, including the read-only public demo
+- Public-demo provisioning, synthetic fallback, replay resume and determinism
 
 The goal is to test the core scoring logic independently from AWS so that most development can be performed locally.
 

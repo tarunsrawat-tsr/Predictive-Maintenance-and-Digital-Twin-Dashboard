@@ -11,39 +11,17 @@ ROOT = Path(__file__).resolve().parents[1]
 for p in ("src", "services/scorer", "services/dashboard", "services/simulator", "ml"):
     sys.path.insert(0, str(ROOT / p))
 
-from pdm.cmapss import COLUMNS  # noqa: E402
+from pdm.synthetic import synthetic_cmapss  # noqa: E402
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
 
 
-def synthetic_cmapss(n_units: int = 12, min_len: int = 120, max_len: int = 220, seed: int = 0) -> np.ndarray:
-    """Generate a small C-MAPSS-like run-to-failure array with monotone sensor drift.
-
-    Shape (rows, 26) using the dataset column layout, good enough to train/test the pipeline
-    without the real download (which the full training script uses).
-    """
-    rng = np.random.default_rng(seed)
-    rows = []
-    base = rng.normal(500, 50, size=24)
-    base[:3] = [0.0, 0.0, 100.0]  # operating settings
-    for u in range(1, n_units + 1):
-        n = int(rng.integers(min_len, max_len))
-        drift = rng.normal(0, 0.02, size=24)
-        for c in range(1, n + 1):
-            frac = c / n
-            raw = base + drift * (frac**2) * 200 + rng.normal(0, 0.3, size=24)
-            raw[:3] = [0.0, 0.0, 100.0]
-            rows.append([u, c, *raw])
-    arr = np.array(rows, dtype=float)
-    assert arr.shape[1] == len(COLUMNS)
-    return arr
-
-
 @pytest.fixture(scope="session")
 def synth_train() -> np.ndarray:
-    return synthetic_cmapss()
+    """A small C-MAPSS-like run-to-failure array (the generator the public demo falls back to)."""
+    return synthetic_cmapss(n_units=12, seed=0)
 
 
 @pytest.fixture(scope="session")

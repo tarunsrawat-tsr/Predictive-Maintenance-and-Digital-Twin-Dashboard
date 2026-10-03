@@ -5,6 +5,7 @@
 #   make train          train the model bundle -> artifacts/model
 #   make test           unit + integration tests (moto-mocked AWS)
 #   make demo           run simulator+scorer+dashboard locally (no AWS)
+#   make public-demo    one-command, read-only public demo (no AWS, no dataset, no login)
 #
 #   make infra-init     terraform init
 #   make infra-ecr      create only the ECR repositories (first deploy)
@@ -17,14 +18,16 @@
 #   make infra-destroy  tear everything down
 
 SHELL := /bin/bash
-PY ?= python3
+# Prefer a project virtualenv when one exists, so every target uses the interpreter `make setup`
+# installed into instead of a system python that happens not to have the dependencies.
+PY ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 TF_DIR := infra/terraform
 TF ?= terraform
 AWS_REGION ?= $(shell cd $(TF_DIR) 2>/dev/null && $(TF) output -raw aws_region 2>/dev/null || echo ap-northeast-1)
 IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 SERVICES := scorer dashboard simulator
 
-.PHONY: setup data train test lint demo demo-sim demo-dash infra-init infra-ecr infra-plan infra-apply infra-destroy push deploy upload-model iot-certs simulate clean
+.PHONY: setup data train test lint demo demo-sim demo-dash public-demo public-demo-seed infra-init infra-ecr infra-plan infra-apply infra-destroy push deploy upload-model iot-certs simulate clean
 
 setup:
 	$(PY) -m pip install -e ".[dev,train,dashboard,simulator]"
@@ -53,6 +56,15 @@ demo-sim:
 
 demo-dash:
 	PDM_BACKEND=local PDM_DEMO_MODE=1 $(PY) -m streamlit run services/dashboard/app.py
+
+# ---------------------------------------------------------------- public demo
+# Self-contained and read-only: provisions its own model + data, then serves the console.
+# Nothing to install beyond the dashboard extras, no AWS account, no C-MAPSS download required.
+public-demo:
+	$(PY) scripts/public_demo.py --machines 12 --port 8501
+
+public-demo-seed:
+	$(PY) scripts/public_demo.py --seed-only
 
 # ---------------------------------------------------------------- AWS
 infra-init:

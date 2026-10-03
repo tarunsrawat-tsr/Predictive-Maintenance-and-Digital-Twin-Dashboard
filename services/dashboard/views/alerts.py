@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from common import REFRESH_SECONDS, STATUS_EMOJI, load_alerts, store
+from common import PUBLIC_DEMO, REFRESH_SECONDS, STATUS_EMOJI, load_alerts, store
 
 st.title("🚨 Alerts")
 st.caption(
@@ -65,7 +65,10 @@ def live_alerts() -> None:
     selected = event.selection.rows if event and event.selection else []
     sel_df = df.iloc[selected] if selected else df.iloc[0:0]
     b1, b2, _ = st.columns([1.2, 1.2, 4])
-    if b1.button(
+    if PUBLIC_DEMO:
+        # Acknowledgement is the only write path in the console; the public demo is read-only.
+        b1.button("✅ Acknowledge selected", disabled=True, help="Disabled in the public demo")
+    elif b1.button(
         f"✅ Acknowledge selected ({len(sel_df)})", disabled=sel_df.empty or status_filter == "acknowledged"
     ):
         for _, a in sel_df.iterrows():

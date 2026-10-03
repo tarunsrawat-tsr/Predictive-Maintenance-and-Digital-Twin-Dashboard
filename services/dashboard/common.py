@@ -21,6 +21,29 @@ STATUS_EMOJI = {"healthy": "🟢", "warning": "🟠", "critical": "🔴", "unkno
 SEVERITY_COLORS = {"critical": "#ef4444", "warning": "#f59e0b", "info": "#38bdf8"}
 REFRESH_SECONDS = int(os.environ.get("PDM_DASHBOARD_REFRESH_SECONDS", "5"))
 
+
+def flag(name: str, *, default: bool = False) -> bool:
+    """Read a boolean setting from the environment, falling back to Streamlit secrets.
+
+    Hosted runtimes (e.g. Community Cloud) configure an app through secrets rather than the
+    process environment, so both sources are honoured. A missing secrets file is not an error.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        try:
+            import streamlit as st
+
+            raw = st.secrets.get(name)
+        except Exception:  # no secrets configured - fall through to the default
+            raw = None
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in ("", "0", "false", "no")
+
+
+#: Public demo: self-bootstrapping, read-only, no login (see services/dashboard/public_mode.py).
+PUBLIC_DEMO = flag("PDM_PUBLIC_DEMO")
+
 CSS = """
 <style>
 :root { --card-bg: #0f172a; --card-border: #1e293b; }
@@ -39,6 +62,10 @@ CSS = """
 .pdm-badge { display:inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: #0b1220; }
 .pdm-muted { color:#94a3b8; font-size:0.8rem; }
 [data-testid="stMetricValue"] { font-size: 1.6rem; }
+.pdm-public-banner { border: 1px solid #1e3a5f; background: linear-gradient(90deg,#0b1220 0%,#10233d 100%);
+                    border-left: 6px solid #38bdf8; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.9rem; }
+.pdm-public-banner .pdm-public-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.2rem; }
+.pdm-public-banner .pdm-public-body { color: #b6c2d4; font-size: 0.84rem; line-height: 1.45; }
 </style>
 """
 

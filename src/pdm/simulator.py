@@ -135,6 +135,64 @@ class FleetSimulator:
         self.tick += 1
         return out
 
+    # ------------------------------------------------------------------ resume support
+    def snapshot(self) -> dict:
+        """Serialisable replay cursor: where each machine is in its trajectory.
+
+        Lets a long-running replay survive a process restart (the public demo persists this
+        next to its store so a visitor never sees cycle counters jump backwards).
+        """
+        return {
+            "tick": self.tick,
+            "machines": [
+                {
+                    "machine_id": m.machine_id,
+                    "site": m.site,
+                    "line": m.line,
+                    "unit": m.unit,
+                    "pos": m.pos,
+                    "overhauls": m.overhauls,
+                }
+                for m in self.machines
+            ],
+        }
+
+    def restore(self, cursor: dict) -> bool:
+        """Resume from a :meth:`snapshot`. Returns False if the cursor cannot be applied.
+
+        A stale or mismatched cursor (different fleet size or dataset) is ignored rather than
+        raising, so callers can simply reseed.
+        """
+        entries = (cursor or {}).get("machines") or []
+        if len(entries) != len(self.machines):
+            return False
+        restored: list[MachineReplay] = []
+        for current, entry in zip(self.machines, entries, strict=True):
+            unit = entry.get("unit")
+            if unit not in self._units:
+                return False
+            rows = self._units[unit]
+            pos = int(entry.get("pos", 0))
+            if not 0 <= pos <= len(rows):
+                return False
+            restored.append(
+                MachineReplay(
+                    current.machine_id,
+                    current.site,
+                    current.line,
+                    int(unit),
+                    rows,
+                    pos,
+                    int(entry.get("overhauls", 0)),
+                )
+            )
+        self.machines = restored
+        self.tick = int(cursor.get("tick", 0))
+        # Keep the draw pool free of units that are already running.
+        in_use = {m.unit for m in self.machines}
+        self._pool = [u for u in self._pool if u not in in_use]
+        return True
+
     def true_rul(self, machine_id: str) -> int | None:
         """Ground-truth RUL of the current unit (for evaluation/demo overlays only)."""
         for m in self.machines:
