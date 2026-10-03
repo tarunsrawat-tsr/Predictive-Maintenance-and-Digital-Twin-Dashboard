@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdm"
+version = "0.1.0"
+description = "Predictive Maintenance & Digital Twin platform (NASA C-MAPSS on AWS IoT Core / Kinesis / Lambda / DynamoDB / Streamlit)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "lightgbm>=4.0",
+    "boto3>=1.34",
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+# Model training / evaluation (not needed at inference time).
+train = ["pandas>=2.1", "scikit-learn>=1.3", "joblib>=1.3"]
+# Streamlit digital-twin dashboard.
+dashboard = ["streamlit>=1.50", "plotly>=5.20", "pandas>=2.1"]
+# MQTT simulator.
+simulator = ["paho-mqtt>=2.0", "certifi>=2024.2.2"]
+# Local development & CI.
+dev = [
+    "pytest>=8.0",
+    "moto[dynamodb,sns,s3,firehose]>=5.0",
+    "ruff>=0.5",
+    "pandas>=2.1",
+    "scikit-learn>=1.3",
+    "streamlit>=1.50",
+    "plotly>=5.20",
+    "paho-mqtt>=2.0",
+    "certifi>=2024.2.2",
+    "python-hcl2>=4.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "services/scorer", "services/dashboard", "services/simulator"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "services", "ml", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]
+ignore = ["E501"]

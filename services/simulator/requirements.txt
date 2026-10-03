@@ -1,0 +1,5 @@
+numpy>=1.26,<3
+pydantic>=2.5,<3
+paho-mqtt>=2.0,<3
+certifi>=2024.2.2
+boto3>=1.34
