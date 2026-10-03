@@ -71,16 +71,16 @@ locals {
       metrics = [["AWS/Kinesis", "IncomingRecords", "StreamName", aws_kinesis_stream.telemetry.name]]
     },
     {
-      title   = "Scorer invocations / errors"
-      stat    = "Sum"
+      title = "Scorer invocations / errors"
+      stat  = "Sum"
       metrics = [
         ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.scorer.function_name],
         [".", "Errors", ".", "."]
       ]
     },
     {
-      title   = "Scorer latency p50 / p95 (ms)"
-      stat    = "p50"
+      title = "Scorer latency p50 / p95 (ms)"
+      stat  = "p50"
       metrics = [
         ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.scorer.function_name, { stat = "p50" }],
         ["...", { stat = "p95" }]
@@ -92,8 +92,8 @@ locals {
       metrics = [["AWS/Lambda", "IteratorAge", "FunctionName", aws_lambda_function.scorer.function_name]]
     },
     {
-      title   = "DynamoDB write units"
-      stat    = "Sum"
+      title = "DynamoDB write units"
+      stat  = "Sum"
       metrics = [
         ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", aws_dynamodb_table.telemetry.name],
         ["...", aws_dynamodb_table.machine_state.name],
@@ -101,8 +101,8 @@ locals {
       ]
     },
     {
-      title   = "Dashboard (ECS) CPU / memory %"
-      stat    = "Average"
+      title = "Dashboard (ECS) CPU / memory %"
+      stat  = "Average"
       metrics = [
         ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.dashboard.name],
         [".", "MemoryUtilization", ".", ".", ".", "."]
@@ -117,11 +117,11 @@ resource "aws_cloudwatch_dashboard" "platform" {
   dashboard_body = jsonencode({
     widgets = [
       for i, w in local.cw_widgets : {
-        type       = "metric"
-        x          = (i % 3) * 8
-        y          = floor(i / 3) * 6
-        width      = 8
-        height     = 6
+        type   = "metric"
+        x      = (i % 3) * 8
+        y      = floor(i / 3) * 6
+        width  = 8
+        height = 6
         properties = {
           title   = w.title
           region  = local.region

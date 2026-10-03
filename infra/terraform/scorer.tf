@@ -47,7 +47,7 @@ resource "aws_iam_role" "scorer" {
   name = "${local.name}-scorer"
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
@@ -66,7 +66,7 @@ resource "aws_iam_role_policy" "scorer" {
   role = aws_iam_role.scorer.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Sid    = "ReadStream"

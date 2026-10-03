@@ -68,7 +68,7 @@ variable "datalake_expiration_days" {
 # ------------------------------------------------------------------ business rules (scorer env)
 variable "health_thresholds" {
   description = "Business thresholds passed to the scorer as environment variables."
-  type        = object({
+  type = object({
     rul_cap            = optional(number, 125)
     rul_warning        = optional(number, 50)
     rul_critical       = optional(number, 20)
