@@ -35,13 +35,19 @@ if PUBLIC_DEMO:
 else:
     require_login()
 
-pages = [
-    st.Page("views/fleet.py", title="Fleet overview", icon="🏭", default=True),
-    st.Page("views/machine.py", title="Machine twin", icon="⚙️"),
-    st.Page("views/alerts.py", title="Alerts", icon="🚨"),
-    st.Page("views/maintenance.py", title="Maintenance & ROI", icon="🗓️"),
-    st.Page("views/model.py", title="Model card", icon="🧠"),
+# Page paths are anchored to this file rather than passed as relative strings: Streamlit
+# resolves a relative st.Page against the *entrypoint* script's directory, so a launcher at the
+# repository root (see streamlit_app.py) would not find services/dashboard/views/*.py.
+PAGES = [
+    (HERE / "views" / "fleet.py", "Fleet overview", "🏭", True),
+    (HERE / "views" / "machine.py", "Machine twin", "⚙️", False),
+    (HERE / "views" / "alerts.py", "Alerts", "🚨", False),
+    (HERE / "views" / "maintenance.py", "Maintenance & ROI", "🗓️", False),
+    (HERE / "views" / "model.py", "Model card", "🧠", False),
 ]
+
+pages = [st.Page(str(path), title=title, icon=icon, default=default) for path, title, icon, default in PAGES]
+
 
 with st.sidebar:
     st.markdown("### 🏭 PdM Digital Twin")

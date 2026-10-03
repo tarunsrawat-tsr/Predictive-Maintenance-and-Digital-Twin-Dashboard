@@ -1,0 +1,6 @@
+# System packages installed with apt-get by Streamlit Community Cloud (one per line).
+#
+# LightGBM loads a shared OpenMP runtime at import time; without it `import lightgbm` fails and
+# the console cannot load the model bundle. The dashboard container installs the same package
+# (see services/dashboard/Dockerfile) for the same reason.
+libgomp1

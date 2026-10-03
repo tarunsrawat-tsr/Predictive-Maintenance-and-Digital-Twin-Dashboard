@@ -77,6 +77,33 @@ through the CLI, e.g. on a hosted platform. All are optional.
 The demo binds `0.0.0.0:8501` and needs no configuration for CORS or XSRF (see
 `.streamlit/config.toml`), so it can sit behind any reverse proxy.
 
+### Streamlit Community Cloud
+
+The repository root carries everything a hosted platform looks for, so deployment is:
+
+1. **share.streamlit.io → New app**, pick this repository and the branch.
+2. **Main file path:** `streamlit_app.py`
+3. **Deploy.** No secrets are needed.
+
+| Root file | Why it exists |
+|---|---|
+| `streamlit_app.py` | Hosted platforms run a single file from the repository root; this is a launcher for `services/dashboard/app.py`. It enables the public demo by default (`PDM_HOSTED`), so a fresh deployment is populated without any configuration. |
+| `requirements.txt` | Hosted platforms install from this file and **do not** install optional extras, so the `[dashboard]` group in `pyproject.toml` would be missed and `import streamlit` would fail. Mirrors `services/dashboard/requirements.txt`. |
+| `packages.txt` | System packages. `libgomp1` is the OpenMP runtime LightGBM loads at import; without it the model bundle cannot be loaded. |
+
+To serve the operator console instead of the demo, set `PDM_PUBLIC_DEMO = "0"` in the app's
+secrets — an explicit value always beats the hosted default. Other `PDM_*` variables from the
+table above can be set the same way; `common.flag()` reads the environment first and falls back
+to secrets.
+
+Notes specific to the free tier:
+
+- Instances sleep when idle and storage is ephemeral, so the demo re-provisions on a cold start
+  (≈10 s with the dataset download, ≈1 s from the synthetic fallback). Set
+  `PDM_DEMO_ALLOW_DOWNLOAD = "0"` to always take the fast path.
+- Streamlit resolves page paths relative to the *entrypoint*, which is why `app.py` builds them
+  from its own directory. If you add a page, keep using absolute paths or hosting will break.
+
 **Docker** — the existing dashboard image works unchanged; override the backend it ships with:
 
 ```bash
@@ -88,13 +115,6 @@ docker run --rm -p 8501:8501 \
   -e PDM_PUBLIC_DEMO_LIVE=1 \
   pdm-dashboard
 ```
-
-**Streamlit Community Cloud** — point the app at `services/dashboard/app.py` and set
-`PDM_PUBLIC_DEMO = "1"` in the app's secrets. Note that the free tier does not install the
-`[dashboard]` extra from `pyproject.toml`; add a `requirements.txt` (the contents of
-`services/dashboard/requirements.txt` are sufficient) so `streamlit`, `plotly` and `pandas` are
-present. Set `PDM_DEMO_ALLOW_DOWNLOAD = "0"` if you would rather not depend on the dataset
-download at boot.
 
 **Any host or VM** — `make public-demo` under a process manager, or run
 `python scripts/public_demo.py --seed-only` as a build step and `--headless` plus a separate

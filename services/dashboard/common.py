@@ -42,7 +42,9 @@ def flag(name: str, *, default: bool = False) -> bool:
 
 
 #: Public demo: self-bootstrapping, read-only, no login (see services/dashboard/public_mode.py).
-PUBLIC_DEMO = flag("PDM_PUBLIC_DEMO")
+#: Hosted entrypoints (streamlit_app.py) set PDM_HOSTED so a fresh deployment shows the demo
+#: without needing any secrets; an explicit PDM_PUBLIC_DEMO always takes precedence.
+PUBLIC_DEMO = flag("PDM_PUBLIC_DEMO", default=flag("PDM_HOSTED"))
 
 CSS = """
 <style>

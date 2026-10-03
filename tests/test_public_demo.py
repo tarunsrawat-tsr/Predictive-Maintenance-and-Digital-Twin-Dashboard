@@ -27,7 +27,8 @@ from pdm.simulator import FleetSimulator
 from pdm.storage.local import SQLiteStore
 from pdm.synthetic import synthetic_cmapss, write_synthetic_split
 
-DASH = Path(__file__).resolve().parents[1] / "services" / "dashboard"
+ROOT = Path(__file__).resolve().parents[1]
+DASH = ROOT / "services" / "dashboard"
 
 
 # ---------------------------------------------------------------------------- synthetic data
@@ -303,12 +304,60 @@ def test_public_demo_alert_page_disables_acknowledgement(public_demo_env):
     assert all("(" not in b.label for b in acks)
 
 
+def test_hosted_default_enables_the_public_demo(tmp_path, monkeypatch):
+    """A hosted deployment must work with no secrets, but an explicit opt-out still wins."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(DASH))
+    monkeypatch.delenv("PDM_PUBLIC_DEMO", raising=False)
+    monkeypatch.setenv("PDM_HOSTED", "1")
+    _reload_dashboard_modules()
+    import common
+
+    assert common.PUBLIC_DEMO is True
+    monkeypatch.setenv("PDM_PUBLIC_DEMO", "0")
+    _reload_dashboard_modules()
+    import common as reloaded
+
+    assert reloaded.PUBLIC_DEMO is False, "explicit PDM_PUBLIC_DEMO must override PDM_HOSTED"
+
+
+def test_root_entrypoint_renders_and_resolves_every_page(public_demo_env):
+    """Hosted platforms run one root file; it must still find all five pages.
+
+    ``st.Page()`` raises at construction when a path cannot be resolved, and relative page paths
+    resolve against the *entrypoint's* directory — so a clean render of the root launcher is
+    precisely the regression test for pages vanishing on a hosted deploy.
+    """
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py"), default_timeout=180)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.title[0].value.startswith("🏭")
+    assert at.metric, "the fleet page should render metrics through the root entrypoint"
+
+
+def test_hosted_entrypoint_has_deployment_manifests():
+    """Streamlit Cloud reads these from the repository root; the app cannot start without them.
+
+    pyproject.toml is not enough: hosted platforms do not install optional extras, so the
+    dashboard dependencies must also be listed in requirements.txt.
+    """
+    requirements = (ROOT / "requirements.txt").read_text()
+    for package in ("streamlit", "plotly", "pandas", "lightgbm", "numpy"):
+        assert package in requirements, f"{package} missing from the root requirements.txt"
+    assert "libgomp1" in (ROOT / "packages.txt").read_text()
+
+
 def test_alert_page_allows_acknowledgement_outside_the_public_demo(public_demo_env, monkeypatch):
     """Guard against the read-only change silently disabling the operator console."""
     pytest.importorskip("streamlit")
     from streamlit.testing.v1 import AppTest
 
     monkeypatch.delenv("PDM_PUBLIC_DEMO", raising=False)
+    # The root entrypoint sets this process-wide during its AppTest run.
+    monkeypatch.delenv("PDM_HOSTED", raising=False)
     _reload_dashboard_modules()
     at = AppTest.from_file(str(DASH / "views" / "alerts.py"), default_timeout=120)
     at.run()

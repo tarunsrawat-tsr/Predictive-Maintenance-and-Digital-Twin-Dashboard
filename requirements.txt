@@ -1,0 +1,15 @@
+# Hosted-deployment dependencies (Streamlit Community Cloud and similar).
+#
+# Hosted platforms install from this file rather than from pyproject.toml, and they do NOT
+# install optional extras — so the `[dashboard]` group would be missed and the app would fail on
+# `import streamlit`. This mirrors services/dashboard/requirements.txt, which the container image
+# uses; keep the two in sync.
+#
+# The `pdm` package itself does not need installing: streamlit_app.py puts `src/` on sys.path.
+numpy>=1.26,<3
+pandas>=2.1
+lightgbm>=4.3,<5
+boto3>=1.34
+pydantic>=2.5,<3
+streamlit>=1.50,<2
+plotly>=5.20

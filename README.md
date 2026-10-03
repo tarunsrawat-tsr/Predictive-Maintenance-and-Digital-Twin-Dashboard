@@ -33,6 +33,29 @@ C-MAPSS replay
 
 The same scoring pipeline is used locally and in AWS. This makes it possible to run the complete application without an AWS account during development.
 
+## Public demo
+
+The quickest way to see the whole system: no AWS account, no dataset download, no training step, no login.
+
+```bash
+make setup
+make public-demo      # -> http://localhost:8501
+```
+
+This provisions its own model (NASA C-MAPSS if it can be downloaded, otherwise a deterministic synthetic fleet), replays a 12-machine fleet through the same scorer the Lambda runs, and serves the console read-only — acknowledgement, the only write path, is disabled. The demo is deterministic, resumes its replay if you restart it, and freezes to a snapshot with `--static`.
+
+### Deploying it
+
+Point **Streamlit Community Cloud** at `streamlit_app.py` in the repository root and deploy; no secrets are required. The root manifests exist for that platform:
+
+| Root file | Purpose |
+|---|---|
+| `streamlit_app.py` | Entrypoint hosted platforms can pick; enables the demo by default |
+| `requirements.txt` | Hosted platforms do not install optional extras, so the dashboard dependencies are listed here as well |
+| `packages.txt` | `libgomp1`, the OpenMP runtime LightGBM loads at import |
+
+The same demo runs in the existing dashboard container (`PDM_PUBLIC_DEMO=1`), or behind any reverse proxy. See [docs/public-demo.md](docs/public-demo.md) for every option, the deployment recipes, and the limitations.
+
 ## What the system does
 
 For each machine, the system maintains:
@@ -275,6 +298,10 @@ scripts/
 
 tests/                 Automated tests
 
+streamlit_app.py       Hosted entrypoint (Streamlit Community Cloud)
+requirements.txt       Dependencies for hosted deployments
+packages.txt           System packages for hosted deployments (libgomp1)
+
 docs/
 ├── architecture.md
 ├── business-case.md
@@ -362,7 +389,7 @@ docs/runbook.md
 
 ## Testing
 
-The project currently contains 47 automated tests covering:
+The project currently contains 50 automated tests covering:
 
 - Online/offline feature parity
 - Model serialization and loading
