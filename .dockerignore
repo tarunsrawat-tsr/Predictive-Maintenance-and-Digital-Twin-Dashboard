@@ -1,0 +1,15 @@
+.git
+.github
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.venv
+infra
+docs
+tests
+artifacts/pdm_local.sqlite*
+artifacts/*.sqlite*
+data/cmapss/*FD002*
+data/cmapss/*FD003*
+data/cmapss/*FD004*
