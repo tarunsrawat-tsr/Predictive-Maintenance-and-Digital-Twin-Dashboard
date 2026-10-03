@@ -42,7 +42,7 @@ make setup
 make public-demo      # -> http://localhost:8501
 ```
 
-This provisions its own model (NASA C-MAPSS if it can be downloaded, otherwise a deterministic synthetic fleet), replays a 12-machine fleet through the same scorer the Lambda runs, and serves the console read-only — acknowledgement, the only write path, is disabled. The demo is deterministic, resumes its replay if you restart it, and freezes to a snapshot with `--static`.
+This provisions its own model — installing the committed 490 KB bundle in `demo_model/`, or training one if it is absent — replays a 12-machine fleet through the same scorer the Lambda runs, and serves the console read-only: acknowledgement, the only write path, is disabled. Playback is driven by the dashboard's own refresh loop, so an unwatched demo consumes no CPU. The demo is deterministic, resumes its replay if you restart it, and freezes to a snapshot with `--static`.
 
 ### Deploying it
 
@@ -296,6 +296,7 @@ scripts/
 ├── fetch_iot_certs.sh
 └── smoke_test.sh
 
+demo_model/            Committed demo model bundle (490 KB) so hosted deploys never train
 tests/                 Automated tests
 
 streamlit_app.py       Hosted entrypoint (Streamlit Community Cloud)

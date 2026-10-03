@@ -20,8 +20,9 @@ the Terraform stack are all bypassed, but the *scoring* path is not: the same
   plant floor shows a few assets in the critical band, some ageing and the rest comfortable,
   rather than 12 identical machines. Degradation *during* playback is what generates the alert
   history.
-- **Live playback.** Once the seed history is written, one new cycle arrives every 6 seconds and
-  the console auto-refreshes, so the digital twin behaves like the streaming system.
+- **Live playback, at no idle cost.** Once the seed history is written, the fleet advances one
+  cycle per refresh *while a page is open*. Nothing is scored when nobody is watching, so an
+  unused deployment consumes no CPU and stays eligible for the platform's idle sleep.
 - **Read-only by construction.** Acknowledgement is the only write path in the console and it is
   disabled; the store is written exclusively by the ingestion-side scorer.
 
@@ -29,13 +30,33 @@ the Terraform stack are all bypassed, but the *scoring* path is not: the same
 
 | Step | Behaviour |
 |---|---|
-| Model | Reuses `artifacts/model` if a complete bundle is already there. Otherwise trains one from NASA C-MAPSS FD001 (≈15 MB download, a few seconds). If the download is unavailable, it trains on a deterministic synthetic fleet instead, so the demo works fully offline. |
+| Model | Reuses `artifacts/model` if a complete bundle is already there, otherwise installs the committed bundle from `demo_model/` (≈490 KB, trained on real C-MAPSS FD001). Only if neither exists does it train — from C-MAPSS if the dataset can be fetched, else from a deterministic synthetic fleet. |
 | Data | `data/cmapss/` for the real dataset, `data/synthetic/` for the fallback — both git-ignored. |
 | Store | `artifacts/pdm_public_demo.sqlite`, seeded by replaying the fleet through the scorer. |
 | Cursor | `artifacts/pdm_public_demo.sqlite.cursor.json` records where each machine is in its trajectory, so restarting the demo resumes the replay instead of jumping backwards. |
 
 The second run reuses all of it and starts in about a second. `--reseed` rebuilds the store from
 scratch; the demo is deterministic given `--seed` (default `42`).
+
+## Resource behaviour
+
+This matters on a shared free tier, where sustained CPU gets an app throttled.
+
+| Situation | CPU cost |
+|---|---|
+| Nobody viewing | **Zero.** Playback is driven by the render loop, not a background thread. |
+| One viewer, page open | ≈0.06 s per refresh tick (10 s on hosted, 5 s locally) — roughly 0.6% of a core. |
+| Frozen demo (`PDM_PUBLIC_DEMO_LIVE=0`) | **Zero.** The pages do not poll at all (`run_every=None`). |
+| Cold start | ≈4 s: install the committed model (a 490 KB copy), fetch/replay data, seed the store. |
+
+The trade-off worth knowing: a background thread is the one thing that keeps a container
+"busy" forever, because it scores whether or not anyone is connected. That is why the demo
+defaults to render-driven playback and reserves the thread (`PDM_PUBLIC_DEMO_THREAD=1`, or
+`--headless`) for the single case that genuinely needs it — ingestion continuing with no viewer.
+
+If your instance is being throttled anyway, the cheapest configuration is a frozen snapshot:
+set `PDM_PUBLIC_DEMO_LIVE = "0"` in the app's secrets and reboot. The console then serves a
+populated fleet with no simulation running and no periodic reruns.
 
 ## Options
 
@@ -70,6 +91,8 @@ through the CLI, e.g. on a hosted platform. All are optional.
 | `PDM_DEMO_CYCLE_SECONDS` | `1200` | Virtual seconds per replayed cycle. |
 | `PDM_DEMO_LIVE_SECONDS` | `6` | Wall-clock seconds per live cycle. |
 | `PDM_DEMO_ALLOW_DOWNLOAD` | `1` | `0` forces the synthetic fallback. |
+| `PDM_PUBLIC_DEMO_THREAD` | `0` | `1` drives playback from a background thread instead of the render loop (keeps scoring with no viewer; `--headless`). |
+| `PDM_DASHBOARD_REFRESH_SECONDS` | `10` hosted / `5` local | Poll interval. `0` disables polling entirely. |
 | `PDM_LOCAL_DB`, `PDM_MODEL_DIR` | demo defaults | Override where the store and model bundle live. |
 
 ## Publishing it
@@ -142,3 +165,9 @@ Everything in the root [README](../README.md#limitations) applies, plus:
   on it are not meaningful as model performance.
 - Live playback writes to SQLite on every cycle. That is comfortably within what a single
   container can do, but it is not a load test and there is no multi-user isolation.
+- The CPU figures in [Resource behaviour](#resource-behaviour) were measured on a development
+  machine with 12 machines seeded; a shared free-tier vCPU will be slower in absolute terms.
+  The *relative* claim — that an unwatched demo costs nothing — holds regardless.
+- `demo_model/` is committed so hosted deployments never train. It is 490 KB of LightGBM text
+  plus calibration arrays; regenerate it with `make train` and copy the four artifact files if
+  you change the feature set or window size.

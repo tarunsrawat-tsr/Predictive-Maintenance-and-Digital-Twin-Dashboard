@@ -54,7 +54,7 @@ with st.sidebar:
     s = settings()
     backend = "AWS DynamoDB" if s.backend == "dynamodb" else "local demo store"
     st.caption(f"Data source: **{backend}** · region `{s.aws_region}`")
-    st.caption(f"Auto-refresh every {REFRESH_SECONDS}s")
+    st.caption(f"Auto-refresh every {REFRESH_SECONDS}s" if REFRESH_SECONDS > 0 else "Auto-refresh disabled")
     if PUBLIC_DEMO:
         st.info(
             "Public demo: **read-only**. A simulated C-MAPSS fleet is scored by the real "

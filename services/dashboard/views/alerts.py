@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from common import PUBLIC_DEMO, REFRESH_SECONDS, STATUS_EMOJI, load_alerts, store
+from common import PUBLIC_DEMO, REFRESH_EVERY, STATUS_EMOJI, load_alerts, store
 
 st.title("🚨 Alerts")
 st.caption(
@@ -15,7 +15,7 @@ severity_filter = f2.multiselect("Severity", ["critical", "warning", "info"], de
 machine_filter = f3.text_input("Machine contains", "")
 
 
-@st.fragment(run_every=f"{REFRESH_SECONDS}s")
+@st.fragment(run_every=REFRESH_EVERY)
 def live_alerts() -> None:
     df = load_alerts(status=None if status_filter == "all" else status_filter, limit=500)
     if df.empty:

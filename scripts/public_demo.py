@@ -58,7 +58,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--reseed", action="store_true", help="rebuild the demo store from scratch")
     ap.add_argument("--seed-only", action="store_true", help="provision model + store, then exit")
     ap.add_argument("--no-prewarm", action="store_true", help="let the dashboard seed itself on first load")
-    ap.add_argument("--headless", action="store_true", help="run the live loop only, no dashboard")
+    ap.add_argument(
+        "--headless",
+        action="store_true",
+        help="run ingestion only (background thread), no dashboard",
+    )
     ap.add_argument("--static", action="store_true", help="serve a frozen snapshot instead of live playback")
     ap.add_argument("--address", default="0.0.0.0", help="dashboard bind address")
     ap.add_argument("--port", type=int, default=8501, help="dashboard port")
@@ -84,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
 
     if args.headless:
-        demo = _provision(args, live=True)
+        # The one mode that legitimately needs a background thread: ingestion must continue
+        # with nobody watching.
+        demo = _provision(args, live="thread")
         log.info("headless: %s", json.dumps(demo.summary()))
         try:
             while True:
@@ -107,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     env = os.environ.copy()
     env["PDM_PUBLIC_DEMO"] = "1"
     env["PDM_PUBLIC_DEMO_LIVE"] = "0" if args.static else "1"
+    # The dashboard advances the replay from its own refresh loop; no background thread.
+    env["PDM_PUBLIC_DEMO_THREAD"] = "0"
+    env["PDM_DASHBOARD_REFRESH_SECONDS"] = str(max(1, int(args.interval)))
     env.setdefault("PDM_BACKEND", "local")
     # The dashboard re-bootstraps in its own process; hand it the same geometry.
     env["PDM_DEMO_MACHINES"] = str(args.machines)

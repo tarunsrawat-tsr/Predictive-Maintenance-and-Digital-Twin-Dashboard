@@ -42,6 +42,11 @@ sys.path.insert(0, str(DASHBOARD))
 # because common.flag() reads the environment first and this is setdefault.
 os.environ.setdefault("PDM_HOSTED", "1")
 os.environ.setdefault("PDM_BACKEND", "local")
+# Playback is driven by the render loop, never a background thread, and the pages poll on a
+# gentler interval than a local run - both to stay well inside a shared free tier's CPU budget.
+os.environ.setdefault("PDM_PUBLIC_DEMO_LIVE", "1")
+os.environ.setdefault("PDM_PUBLIC_DEMO_THREAD", "0")
+os.environ.setdefault("PDM_DASHBOARD_REFRESH_SECONDS", "10")
 os.environ.setdefault("PDM_MODEL_DIR", str(ROOT / "artifacts" / "model"))
 os.environ.setdefault("PDM_LOCAL_DB", str(ROOT / "artifacts" / "pdm_public_demo.sqlite"))
 os.environ.setdefault("PDM_DATA_DIR", str(ROOT / "data" / "cmapss"))

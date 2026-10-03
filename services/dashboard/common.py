@@ -19,25 +19,28 @@ from pdm.storage import get_store  # noqa: E402
 STATUS_COLORS = {"healthy": "#22c55e", "warning": "#f59e0b", "critical": "#ef4444", "unknown": "#64748b"}
 STATUS_EMOJI = {"healthy": "🟢", "warning": "🟠", "critical": "🔴", "unknown": "⚪"}
 SEVERITY_COLORS = {"critical": "#ef4444", "warning": "#f59e0b", "info": "#38bdf8"}
-REFRESH_SECONDS = int(os.environ.get("PDM_DASHBOARD_REFRESH_SECONDS", "5"))
 
 
-def flag(name: str, *, default: bool = False) -> bool:
-    """Read a boolean setting from the environment, falling back to Streamlit secrets.
+def setting(name: str, default: str) -> str:
+    """Read a value from the environment, falling back to Streamlit secrets.
 
     Hosted runtimes (e.g. Community Cloud) configure an app through secrets rather than the
     process environment, so both sources are honoured. A missing secrets file is not an error.
     """
-    raw = os.environ.get(name)
-    if raw is None:
-        try:
-            import streamlit as st
+    if (raw := os.environ.get(name)) is not None:
+        return raw
+    try:
+        import streamlit as st
 
-            raw = st.secrets.get(name)
-        except Exception:  # no secrets configured - fall through to the default
-            raw = None
-    if raw is None:
-        return default
+        raw = st.secrets.get(name)
+    except Exception:  # no secrets configured - fall through to the default
+        raw = None
+    return default if raw is None else str(raw)
+
+
+def flag(name: str, *, default: bool = False) -> bool:
+    """Boolean flavour of :func:`setting`; anything but 0/false/no/empty counts as true."""
+    raw = setting(name, "true" if default else "false")
     return str(raw).strip().lower() not in ("", "0", "false", "no")
 
 
@@ -45,6 +48,37 @@ def flag(name: str, *, default: bool = False) -> bool:
 #: Hosted entrypoints (streamlit_app.py) set PDM_HOSTED so a fresh deployment shows the demo
 #: without needing any secrets; an explicit PDM_PUBLIC_DEMO always takes precedence.
 PUBLIC_DEMO = flag("PDM_PUBLIC_DEMO", default=flag("PDM_HOSTED"))
+HOSTED = flag("PDM_HOSTED")
+#: Whether the public demo is actually replaying the fleet. When it is not, the data is static
+#: and there is nothing to poll for, so the default refresh drops to zero.
+DEMO_PLAYBACK = PUBLIC_DEMO and flag("PDM_PUBLIC_DEMO_LIVE", default=True)
+
+#: How often the pages poll for fresh data. Hosted instances get a gentler default: every
+#: connected viewer triggers a rerun (and a chart redraw), and free tiers throttle sustained
+#: CPU. Set PDM_DASHBOARD_REFRESH_SECONDS to 0 to disable polling entirely.
+_DEFAULT_REFRESH = "0" if (PUBLIC_DEMO and not DEMO_PLAYBACK) else ("10" if HOSTED else "5")
+REFRESH_SECONDS = int(setting("PDM_DASHBOARD_REFRESH_SECONDS", _DEFAULT_REFRESH))
+#: ``run_every`` value for the live fragments - None means "do not poll", so a static demo
+#: performs no periodic work at all.
+REFRESH_EVERY = f"{REFRESH_SECONDS}s" if REFRESH_SECONDS > 0 else None
+
+
+def advance_demo() -> int:
+    """Advance the public-demo playback by at most one cycle, if one is due.
+
+    Called from the data loaders, i.e. from the same reruns that the pages already perform, so
+    the replay costs nothing while nobody is viewing the dashboard (see :meth:`pdm.demo.PublicDemo.pump`).
+    A no-op outside the public demo.
+    """
+    if not PUBLIC_DEMO:
+        return 0
+    try:
+        import public_mode
+
+        return public_mode.advance()
+    except Exception:  # pragma: no cover - pumping must never break a page render
+        return 0
+
 
 CSS = """
 <style>
@@ -100,6 +134,7 @@ def model_bundle():
 
 # ---------------------------------------------------------------------- data loaders
 def load_states() -> pd.DataFrame:
+    advance_demo()  # tie playback to the dashboard's own refresh loop (no-op unless due)
     rows = store().list_machine_states()
     if not rows:
         return pd.DataFrame(
@@ -125,6 +160,7 @@ def load_telemetry(machine_id: str, limit: int = 400) -> pd.DataFrame:
 
 
 def load_alerts(status: str | None = None, limit: int = 300) -> pd.DataFrame:
+    advance_demo()  # the alerts page refreshes through this loader and nothing else
     rows = store().list_alerts(status=status, limit=limit)
     if not rows:
         return pd.DataFrame(

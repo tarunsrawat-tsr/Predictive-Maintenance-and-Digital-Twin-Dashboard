@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from charts import fleet_rul_bars, plant_floor
-from common import REFRESH_SECONDS, STATUS_EMOJI, fmt_dt, load_alerts, load_states, machine_card, settings
+from common import REFRESH_EVERY, STATUS_EMOJI, fmt_dt, load_alerts, load_states, machine_card, settings
 
 th = settings().thresholds
 econ = settings().economics
@@ -14,7 +14,7 @@ st.caption(
 )
 
 
-@st.fragment(run_every=f"{REFRESH_SECONDS}s")
+@st.fragment(run_every=REFRESH_EVERY)
 def live_fleet() -> None:
     states = load_states()
     alerts_open = load_alerts(status="open", limit=500)

@@ -13,6 +13,7 @@ from common import flag
 
 # Model provenance -> how it is described to a visitor.
 MODEL_LABELS = {
+    "shipped": "RUL model trained on NASA C-MAPSS FD001",
     "cmapss": "RUL model trained on NASA C-MAPSS FD001",
     "synthetic": "RUL model trained on a synthetic fallback fleet (no network at build time)",
     "existing": "RUL model loaded from the existing bundle in artifacts/model",
@@ -24,12 +25,32 @@ def live_enabled() -> bool:
     return flag("PDM_PUBLIC_DEMO_LIVE", default=True)
 
 
+def thread_enabled() -> bool:
+    """Whether to drive playback from a background thread instead of the render loop.
+
+    Off by default, and deliberately so: a thread that keeps scoring regardless of viewers
+    stops the container from ever looking idle, which is exactly what gets an app throttled on
+    a shared free tier. ``--headless`` sets ``PDM_PUBLIC_DEMO_THREAD=1`` when it genuinely
+    needs ingestion to continue with nobody watching.
+    """
+    return flag("PDM_PUBLIC_DEMO_THREAD", default=False)
+
+
 @st.cache_resource(show_spinner="Preparing the public demo: model, fleet replay and store…")
 def session():
     """Build (once per process) the self-contained demo session."""
     from pdm.demo import bootstrap_from_env
 
-    return bootstrap_from_env(live=live_enabled())
+    if not live_enabled():
+        mode: bool | str = False
+    else:
+        mode = "thread" if thread_enabled() else "render"
+    return bootstrap_from_env(live=mode)
+
+
+def advance() -> int:
+    """Advance playback by at most one cycle. Called from the dashboard's data loaders."""
+    return session().pump()
 
 
 def render_banner() -> None:
@@ -37,9 +58,10 @@ def render_banner() -> None:
     info = session().summary()
     label = MODEL_LABELS.get(info.get("model_source", ""), "simulated fleet")
     liveness = (
-        "The fleet keeps degrading in real time."
-        if info.get("live")
-        else "This is a frozen snapshot; restart the demo to resume playback."
+        "The fleet keeps degrading while this page is open, and stops the moment nobody is "
+        "watching — so the demo costs nothing when idle."
+        if info.get("playback")
+        else "This is a frozen snapshot; no simulation is running."
     )
     st.markdown(
         f"""

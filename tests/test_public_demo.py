@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from pdm.demo import (
     PublicDemo,
     ensure_bundle,
     read_provenance,
+    resolve_playback,
     stagger_fleet,
     start_fractions,
 )
@@ -194,7 +196,9 @@ def test_ensure_bundle_reuses_an_existing_bundle(tmp_path, model_dir, synth_data
     assert before == after
 
 
-def test_ensure_bundle_reports_synthetic_when_it_had_to_train(tmp_path):
+def test_ensure_bundle_reports_synthetic_when_it_had_to_train(tmp_path, monkeypatch):
+    # Hide the committed bundle so this exercises the training path.
+    monkeypatch.setattr("pdm.demo.SHIPPED_MODEL_DIR", tmp_path / "no-shipped-bundle")
     provenance = ensure_bundle(
         tmp_path / "m", data_dir=tmp_path / "none", allow_download=False, rounds=20, window=10
     )
@@ -303,6 +307,150 @@ def test_public_demo_alert_page_disables_acknowledgement(public_demo_env):
     assert all(b.disabled for b in acks), "acknowledgement must be disabled in the public demo"
     # The inert public variant carries no selection count (nothing can be selected).
     assert all("(" not in b.label for b in acks)
+
+
+# ---------------------------------------------------------------------------- playback modes
+def test_resolve_playback_accepts_the_documented_modes():
+    assert resolve_playback(False) == (False, None)
+    assert resolve_playback(None) == (False, None)
+    assert resolve_playback(True) == (True, "thread")  # legacy alias
+    assert resolve_playback("render") == (True, "render")
+    assert resolve_playback(" thread ") == (True, "thread")
+    with pytest.raises(ValueError):
+        resolve_playback("background")
+
+
+def test_render_mode_starts_no_background_thread(demo_kwargs):
+    """A hosted demo must not hold a thread alive: that is what stops a container idling."""
+    demo_kwargs["live"] = "render"
+    demo = PublicDemo.bootstrap(**demo_kwargs)
+    assert demo.playback is True
+    assert demo.mode == "render"
+    assert demo.is_live is False, "render mode must not start the thread"
+    assert demo._thread is None
+
+
+def test_frozen_demo_never_advances(demo_kwargs):
+    demo_kwargs["live"] = False
+    demo = PublicDemo.bootstrap(**demo_kwargs)
+    assert demo.playback is False
+    before = demo.sim.tick
+    demo._last_pump = time.time() - 10_000  # pretend a very long time has passed
+    assert demo.pump() == 0
+    assert demo.sim.tick == before
+
+
+def test_pump_is_a_no_op_until_a_cycle_is_due(demo_kwargs):
+    """Calling it on every rerun must be free: only one timestamp comparison."""
+    demo_kwargs["live"] = "render"
+    demo = PublicDemo.bootstrap(**demo_kwargs)
+    assert demo.pump() == 0, "the first call only arms the timer"
+    assert demo.pump() == 0, "and nothing is due immediately afterwards"
+    assert demo.sim.tick == demo.seed_summary.cycles, "no cycles consumed while idle"
+
+
+def test_pump_advances_when_due_and_bounds_catch_up(demo_kwargs):
+    demo_kwargs["live"] = "render"
+    demo = PublicDemo.bootstrap(**demo_kwargs)
+    demo.pump()  # arm
+
+    demo._last_pump = time.time() - demo.live_seconds  # exactly one cycle overdue
+    assert demo.pump() == 1
+
+    # Returning after a long absence must not trigger a burst of scoring.
+    demo._last_pump = time.time() - demo.live_seconds * 1000
+    assert demo.pump(max_catchup=3) == 3
+
+
+def test_pump_survives_a_failing_tick(demo_kwargs, monkeypatch):
+    """A bad tick must never break a page render."""
+    demo_kwargs["live"] = "render"
+    demo = PublicDemo.bootstrap(**demo_kwargs)
+    demo.pump()
+
+    def boom(_batch):
+        raise RuntimeError("scoring exploded")
+
+    monkeypatch.setattr(demo.scorer, "process", boom)
+    demo._last_pump = time.time() - demo.live_seconds * 5
+    assert demo.pump() == 0  # swallows the error, reports nothing scored
+
+
+# ---------------------------------------------------------------------------- shipped bundle
+def test_shipped_bundle_is_complete_and_loadable():
+    """Guards the committed demo bundle: a missing file only shows up on a hosted deploy.
+
+    Hosted deployments have ephemeral storage and no training step, so if this bundle is broken
+    the public demo cannot start at all.
+    """
+    from pdm.demo import REQUIRED_ARTIFACTS, SHIPPED_MODEL_DIR
+
+    assert SHIPPED_MODEL_DIR.is_dir(), f"{SHIPPED_MODEL_DIR} should be committed to the repo"
+    for name in REQUIRED_ARTIFACTS:
+        assert (SHIPPED_MODEL_DIR / name).exists(), f"{name} missing from the shipped bundle"
+
+    from pdm.model import load_bundle
+
+    bundle = load_bundle(SHIPPED_MODEL_DIR)
+    metrics = bundle.metadata["metrics"]
+    assert bundle.window == metrics["window"]
+    # The bundle must be the real C-MAPSS model the README documents, not a synthetic one:
+    # a fallback-trained bundle reports a suspiciously low RMSE which would be misleading.
+    assert metrics["dataset"] == "FD001"
+    assert 12.0 < metrics["test_rmse_capped"] < 17.0, metrics["test_rmse_capped"]
+
+
+def test_ensure_bundle_installs_shipped_bundle_without_training(tmp_path, synth_data_dir, monkeypatch):
+    def _no_training():
+        raise AssertionError("training must not run when the committed bundle is available")
+
+    monkeypatch.setattr("pdm.demo._train_module", _no_training)
+    model_dir = tmp_path / "fresh-model"
+    provenance = ensure_bundle(model_dir, data_dir=synth_data_dir, allow_download=False)
+
+    assert provenance["source"] == "shipped"
+    assert (model_dir / "rul_p50.txt").exists()
+    assert read_provenance(model_dir)["source"] == "shipped"
+
+
+def test_install_shipped_bundle_reports_failure_when_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr("pdm.demo.SHIPPED_MODEL_DIR", tmp_path / "nope")
+    from pdm.demo import install_shipped_bundle
+
+    assert install_shipped_bundle(tmp_path / "dest") is False
+    assert not (tmp_path / "dest" / "rul_p50.txt").exists()
+
+
+def test_frozen_demo_does_not_poll_at_all(tmp_path, monkeypatch):
+    """A snapshot must not pay for periodic reruns - that is the whole point of freezing it."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(DASH))
+    monkeypatch.setenv("PDM_PUBLIC_DEMO", "1")
+    monkeypatch.setenv("PDM_HOSTED", "1")
+    monkeypatch.delenv("PDM_DASHBOARD_REFRESH_SECONDS", raising=False)
+
+    monkeypatch.setenv("PDM_PUBLIC_DEMO_LIVE", "1")
+    _reload_dashboard_modules()
+    import common
+
+    assert common.DEMO_PLAYBACK is True
+    assert common.REFRESH_SECONDS == 10  # hosted default when playing
+    assert common.REFRESH_EVERY == "10s"
+
+    monkeypatch.setenv("PDM_PUBLIC_DEMO_LIVE", "0")
+    _reload_dashboard_modules()
+    import common as frozen
+
+    assert frozen.DEMO_PLAYBACK is False
+    assert frozen.REFRESH_SECONDS == 0
+    assert frozen.REFRESH_EVERY is None, "a frozen demo must not schedule reruns"
+
+    # An explicit interval still wins over the frozen default.
+    monkeypatch.setenv("PDM_DASHBOARD_REFRESH_SECONDS", "30")
+    _reload_dashboard_modules()
+    import common as explicit
+
+    assert explicit.REFRESH_SECONDS == 30
 
 
 def test_hosted_default_enables_the_public_demo(tmp_path, monkeypatch):

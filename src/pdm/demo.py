@@ -28,6 +28,7 @@ import importlib.util
 import json
 import logging
 import os
+import shutil
 import sys
 import threading
 import time
@@ -50,6 +51,11 @@ log = logging.getLogger("pdm.public_demo")
 ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_ARTIFACTS = ("metadata.json", "rul_p50.txt", "interval.json", "anomaly.npz")
 PROVENANCE_FILE = "demo_provenance.json"
+#: A small (≈490 KB) model bundle committed to the repository, trained on the real C-MAPSS
+#: FD001 set. Hosted deployments have ephemeral storage, so without this every cold start would
+#: re-download and retrain - a ~7 s CPU burst each time, which is exactly the sort of thing that
+#: gets a shared free tier throttled. Installing it costs a file copy.
+SHIPPED_MODEL_DIR = ROOT / "demo_model"
 
 DEFAULT_MODEL_DIR = "artifacts/model"
 DEFAULT_DB = "artifacts/pdm_public_demo.sqlite"
@@ -94,6 +100,24 @@ def _train_module():
     sys.modules["pdm_train"] = module
     spec.loader.exec_module(module)
     return module
+
+
+def install_shipped_bundle(dest: Path | str) -> bool:
+    """Copy the committed demo bundle into ``dest``. True when a usable bundle is in place.
+
+    This is what lets a hosted deployment start without training. It is a copy rather than a
+    redirect so that everything downstream (the dashboard, the scorer) keeps reading a single
+    ``model_dir``, exactly as it would after ``make train``.
+    """
+    if not bundle_present(SHIPPED_MODEL_DIR):
+        return False
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in (*REQUIRED_ARTIFACTS, "metrics.json"):
+        src = SHIPPED_MODEL_DIR / name
+        if src.exists():
+            shutil.copyfile(src, dest / name)
+    return bundle_present(dest)
 
 
 def read_provenance(model_dir: Path | str) -> dict:
@@ -146,8 +170,12 @@ def ensure_bundle(
         log.info("no C-MAPSS data available - generated a synthetic fleet in %s", data_dir)
 
     # 2. Train only when there is nothing to reuse.
+    installed = False
     if have_bundle:
         log.info("reusing the model bundle in %s", model_dir)
+    elif install_shipped_bundle(model_dir):
+        have_bundle = installed = True
+        log.info("installed the committed demo model bundle into %s (no training needed)", model_dir)
     else:
         log.info("training a demo model (%s data, rounds=%d) -> %s", data_source, rounds, model_dir)
         _train_module().main(
@@ -161,7 +189,7 @@ def ensure_bundle(
         )  # fmt: skip
 
     provenance = {
-        "source": "existing" if have_bundle else data_source,
+        "source": "shipped" if installed else ("existing" if have_bundle else data_source),
         "data_source": data_source,
         "model_dir": str(model_dir),
         "data_dir": str(data_dir),
@@ -193,6 +221,22 @@ def stagger_fleet(sim: FleetSimulator, cycles: int, fractions: list[float] | Non
         life = len(machine.rows)
         window = max(0, life - cycles)
         machine.pos = int(max(0, min(fraction * window, life - 1)))
+
+
+def resolve_playback(live: bool | str | None) -> tuple[bool, str | None]:
+    """Normalise the ``live`` argument into ``(playback_enabled, mode)``.
+
+    ``"render"`` (dashboard-driven), ``"thread"`` (background thread) or falsy (snapshot).
+    ``True`` is accepted as an alias for ``"thread"`` so existing callers keep working.
+    """
+    if live is None or live is False:
+        return False, None
+    if live is True:
+        return True, "thread"
+    mode = str(live).strip().lower()
+    if mode not in ("render", "thread"):
+        raise ValueError(f"live must be False, 'render' or 'thread' - got {live!r}")
+    return True, mode
 
 
 # ---------------------------------------------------------------------------- demo session
@@ -239,6 +283,9 @@ class PublicDemo:
         model_dir: Path,
         db_path: Path,
         data_dir: Path,
+        live_seconds: float = DEFAULT_LIVE_SECONDS,
+        playback: bool = False,
+        mode: str | None = None,
     ) -> None:
         self.settings = settings
         self.model = model
@@ -250,8 +297,12 @@ class PublicDemo:
         self.model_dir = model_dir
         self.db_path = db_path
         self.data_dir = data_dir
+        self.live_seconds = live_seconds
+        self.playback = playback
+        self.mode = mode  # "render" | "thread" | None (snapshot)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_pump: float | None = None
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -270,13 +321,18 @@ class PublicDemo:
         window: int = 20,
         allow_download: bool = True,
         reseed: bool = False,
-        live: bool = False,
+        live: bool | str = False,
         live_seconds: float = DEFAULT_LIVE_SECONDS,
     ) -> PublicDemo:
-        """Provision (model, data, store) and optionally start the live loop.
+        """Provision (model, data, store) and optionally start playback.
 
         Seeding is skipped when the store already holds machine state, so restarting the demo is
         instant. Pass ``reseed=True`` to rebuild it from scratch.
+
+        ``live`` selects how the replay advances: ``"render"`` (the dashboard pumps it while a
+        page is open — the default for hosted deployments), ``"thread"`` (a background thread,
+        for headless ingestion) or ``False`` (a frozen snapshot). ``True`` is accepted as an
+        alias for ``"thread"``.
         """
         model_dir = Path(model_dir or os.environ.get("PDM_MODEL_DIR") or DEFAULT_MODEL_DIR)
         data_dir = Path(data_dir or os.environ.get("PDM_DATA_DIR") or DEFAULT_DATA_DIR)
@@ -313,6 +369,7 @@ class PublicDemo:
         )
         scorer = StreamScorer(model, store, settings)
 
+        playback, mode = resolve_playback(live)
         demo = cls(
             settings=settings,
             model=model,
@@ -324,6 +381,9 @@ class PublicDemo:
             model_dir=model_dir,
             db_path=db_path,
             data_dir=replay_dir,
+            live_seconds=live_seconds,
+            playback=playback,
+            mode=mode,
         )  # fmt: skip
 
         existing = store.list_machine_states()
@@ -347,7 +407,7 @@ class PublicDemo:
             demo._write_cursor()
             log.info("seeded demo store %s (%s)", db_path, demo.seed_summary.describe())
 
-        if live:
+        if mode == "thread":
             demo.start_live(live_seconds)
         return demo
 
@@ -373,11 +433,24 @@ class PublicDemo:
             scorer.process(batch)
         return cls._summarize(store, cycles=sim.tick, seconds=time.time() - t0)
 
-    # ------------------------------------------------------------------ live loop
+    # ------------------------------------------------------------------ playback
+    #
+    # Two ways to keep the fleet moving, and the difference matters on a hosted free tier:
+    #
+    #   "render"  the dashboard advances the replay from its own refresh loop (see
+    #             :meth:`pump`). Nothing is scored unless a page is actually being viewed, so
+    #             an idle deployment costs no CPU and can be put to sleep by the platform.
+    #   "thread"  a background thread ticks on the wall clock, independent of viewers. Only
+    #             appropriate when something must keep ingesting (``--headless``), because an
+    #             app holding a busy thread alive may never be considered idle.
+    #
+    # ``False`` freezes the demo into a snapshot.
     def start_live(self, interval_seconds: float = DEFAULT_LIVE_SECONDS) -> None:
         """Continue replaying on the wall clock in a daemon thread."""
         if self._thread and self._thread.is_alive():
             return
+        self.playback = True
+        self.live_seconds = interval_seconds
         # Switch the simulator off its virtual clock: live cycles are stamped with real time.
         self.sim.virtual_tick_seconds = 0.0
         self._stop.clear()
@@ -386,6 +459,40 @@ class PublicDemo:
         )
         self._thread.start()
         log.info("live demo loop started (one cycle every %.1fs)", interval_seconds)
+
+    def pump(self, max_catchup: int = 4, interval_seconds: float | None = None) -> int:
+        """Advance the replay from a render loop; returns the number of cycles added.
+
+        Safe to call on every rerun: it is a cheap timestamp comparison unless a cycle is
+        actually due. Catch-up is bounded so that returning to a long-idle page does not
+        trigger a burst of scoring, and a failing tick can never break the dashboard.
+        """
+        if not self.playback:
+            return 0
+        interval = self.live_seconds if interval_seconds is None else interval_seconds
+        if interval <= 0:
+            return 0
+        now = time.time()
+        if self._last_pump is None:
+            self._last_pump = now  # first render only arms the timer
+            return 0
+        due = int((now - self._last_pump) // interval)
+        if due <= 0:
+            return 0
+        self._last_pump = now
+        due = min(due, max_catchup)
+        self.sim.virtual_tick_seconds = 0.0
+        scored = 0
+        for _ in range(due):
+            try:
+                self.scorer.process(self.sim.step())
+            except Exception:  # pragma: no cover - a demo must not die on one bad tick
+                log.exception("demo tick failed")
+                break
+            scored += 1
+        if scored:
+            self._write_cursor()
+        return scored
 
     def _live_loop(self, interval_seconds: float) -> None:
         while not self._stop.is_set():
@@ -434,7 +541,9 @@ class PublicDemo:
         data = self._summarize(self.store, cycles=self.seed_summary.cycles, seconds=self.seed_summary.seconds)
         return {
             **data.to_dict(),
+            "playback": self.playback,
             "live": self.is_live,
+            "mode": self.mode,
             "model_source": self.provenance.get("source", "unknown"),
             "db_path": str(self.db_path),
             "model_dir": str(self.model_dir),

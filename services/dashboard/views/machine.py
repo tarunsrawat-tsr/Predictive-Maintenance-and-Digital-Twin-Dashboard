@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 from charts import anomaly_timeline, engine_twin, health_gauge, rul_trajectory, sensor_trends
 from common import (
-    REFRESH_SECONDS,
+    REFRESH_EVERY,
     badge,
     fmt_dt,
     humanize_delta,
@@ -69,7 +69,7 @@ def _zscores(tele: pd.DataFrame, bundle) -> dict[str, float]:
     return out
 
 
-@st.fragment(run_every=f"{REFRESH_SECONDS}s")
+@st.fragment(run_every=REFRESH_EVERY)
 def live_machine() -> None:
     states = load_states()
     row = states[states["machine_id"] == machine_id]
