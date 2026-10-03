@@ -6,6 +6,7 @@ fallback and the resume path, which is what a hosted demo actually relies on.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -348,6 +349,24 @@ def test_hosted_entrypoint_has_deployment_manifests():
     for package in ("streamlit", "plotly", "pandas", "lightgbm", "numpy"):
         assert package in requirements, f"{package} missing from the root requirements.txt"
     assert "libgomp1" in (ROOT / "packages.txt").read_text()
+
+
+def test_packages_txt_names_only_valid_apt_packages():
+    """``packages.txt`` is fed to ``apt-get install`` line by line.
+
+    Every line is treated as a package name, so a comment (or anything else that is not a valid
+    Debian package name) aborts the install with "Unable to locate package #" and the hosted
+    deploy dies during dependency processing. That is why this file carries no commentary — the
+    explanation lives here instead.
+    """
+    lines = (ROOT / "packages.txt").read_text().splitlines()
+    assert lines, "packages.txt must name at least one package"
+    valid = re.compile(r"^[a-z0-9][a-z0-9+.-]*$")
+    for line in lines:
+        assert valid.match(line), (
+            f"packages.txt line {line!r} is not a valid apt package name; "
+            "apt-get would fail on it (comments are not allowed in this file)"
+        )
 
 
 def test_alert_page_allows_acknowledgement_outside_the_public_demo(public_demo_env, monkeypatch):
