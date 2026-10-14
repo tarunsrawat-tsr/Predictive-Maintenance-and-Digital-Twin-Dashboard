@@ -1,0 +1,12 @@
+{
+  "train_engines": 75,
+  "test_engines": 25,
+  "train_rows": 15749,
+  "test_rows": 4882,
+  "baseline_rmse": 41.9,
+  "model_rmse": 14.68,
+  "improvement_percent": 65.0,
+  "window": 20,
+  "rul_cap": 125,
+  "number_of_features": 57
+}

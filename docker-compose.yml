@@ -1,0 +1,44 @@
+# Run the whole project with one command:
+#
+#     docker compose up --build
+#
+# Before the first run, train the model on your own machine once
+# (python train.py) so model.pkl and data/ exist. The services below
+# share this folder, so they all see the same model, dataset, and
+# live_data.db file.
+#
+# Then open:
+#     Dashboard : http://localhost:8501
+#     API docs  : http://localhost:8000/docs
+#
+# Stop everything with Ctrl+C, or:  docker compose down
+
+services:
+  api:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+
+  simulator:
+    build: .
+    command: python simulator.py --machines 5 --interval 2
+    environment:
+      # Inside Docker, "api" is the name of the API service above.
+      API_URL: http://api:8000/predict
+    volumes:
+      - .:/app
+    depends_on:
+      - api
+
+  dashboard:
+    build: .
+    command: streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - simulator
